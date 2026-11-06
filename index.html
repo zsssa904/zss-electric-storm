@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#050814" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="握拳收拢一团雷，张开手掌让雷电向外释放，五指还能自行放电。Three.js + MediaPipe Hands 实时手部追踪。" />
+  <title>指尖雷花 · Electric Storm</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23050a18'/%3E%3Cpath d='M36 6 16 36h11l-3 22 22-32H34z' fill='%236fe8ff'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="intro-open" data-mode="demo" data-backdrop="on">
+  <!-- 舞台：摄像头 → 粒子 → 手部骨架 ------------------------------------- -->
+  <div class="stage" aria-hidden="true">
+    <video id="camera" class="camera" playsinline muted autoplay></video>
+    <div class="camera-tint"></div>
+    <canvas id="scene" class="scene"></canvas>
+    <canvas id="fxCanvas" class="fx-canvas"></canvas>
+    <div class="flash-overlay" id="flashOverlay"></div>
+    <canvas id="handCanvas" class="hand-canvas"></canvas>
+    <div class="grain"></div>
+    <div class="vignette"></div>
+  </div>
+
+  <!-- 顶部 HUD ------------------------------------------------------------ -->
+  <header class="hud hud-top">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">ϟ</span>
+      <span class="brand-text"><b>指尖雷花</b><i>GESTURE&nbsp;STORM</i></span>
+    </div>
+
+    <div class="status" id="status" data-tone="demo" role="status" aria-live="polite">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="statusText">演示模式</span>
+    </div>
+
+    <nav class="tools" aria-label="控制面板">
+      <button id="btnCamera" class="tool" type="button" aria-pressed="false" title="开启 / 关闭摄像头（C）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2a2 2 0 0 0 1.7-.9l.4-.7A1.5 1.5 0 0 1 11.1 4h1.8a1.5 1.5 0 0 1 1.3.7l.4.7a2 2 0 0 0 1.7.9h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.4"/></svg>
+        <span class="tool-label">摄像头</span>
+      </button>
+      <button id="btnBackdrop" class="tool" type="button" aria-pressed="false" disabled title="摄像头画面背景（B）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7.5 12 12l9-4.5z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>
+        <span class="tool-label">画面</span>
+      </button>
+      <button id="btnSkeleton" class="tool" type="button" aria-pressed="false" disabled title="手部 21 关键点（H）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="18" cy="7" r="1.5"/><circle cx="9" cy="13" r="1.5"/><circle cx="15" cy="13" r="1.5"/><circle cx="12" cy="19" r="1.5"/><path d="m6 7 6-2 6 2M6 7l3 6m9-6-3 6M9 13h6m-6 0 3 6m3-6-3 6"/></svg>
+        <span class="tool-label">骨架</span>
+      </button>
+      <button id="btnInfo" class="tool" type="button" aria-pressed="false" aria-controls="infoPanel" title="算法说明（I）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></svg>
+        <span class="tool-label">说明</span>
+      </button>
+      <button id="btnAudio" class="tool" type="button" aria-pressed="true" title="音效开关（M）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+        <span class="tool-label">音效</span>
+      </button>
+    </nav>
+  </header>
+
+  <!-- 底部 HUD ------------------------------------------------------------ -->
+  <main class="hud hud-bottom">
+    <section class="intro" id="intro" aria-labelledby="introTitle">
+      <p class="eyebrow">THREE.JS&nbsp;·&nbsp;MEDIAPIPE&nbsp;HANDS</p>
+      <h1 id="introTitle">让指尖，<br /><span>炸开一团雷。</span></h1>
+      <p class="lede">
+        握拳，电光收拢成球；张开手掌，上万颗电火花向外迸发。
+        五指会拖出电弧，雷花也会跟着手掌移动。
+      </p>
+
+      <div class="intro-actions">
+        <button id="btnStart" class="btn btn-primary" type="button">
+          <span>开启摄像头</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+        <button id="btnDemo" class="btn btn-ghost" type="button">先看演示</button>
+      </div>
+
+      <p class="intro-error" id="introError" role="alert" hidden></p>
+
+      <dl class="intro-stats">
+        <div><dt>粒子</dt><dd id="statParticles">18,000</dd></div>
+        <div><dt>关键点</dt><dd>21</dd></div>
+        <div><dt>阈值</dt><dd>0.32 / 0.66</dd></div>
+      </dl>
+      <p class="intro-note">摄像头画面只在本地推理，不会上传 · 建议 Chrome / Edge · 需 localhost 或 HTTPS</p>
+    </section>
+
+    <section class="meter-card" id="meterCard" aria-label="手掌张力">
+      <div class="meter-head">
+        <span class="meter-title">手掌张力 <em>TENSION</em></span>
+        <span class="meter-state" id="meterState" data-state="bud">聚雷</span>
+      </div>
+      <div class="meter" id="meter" data-state="bud" role="progressbar" aria-label="手掌张力" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="meter-track">
+          <span class="meter-zone is-bud" aria-hidden="true"></span>
+          <span class="meter-zone is-mid" aria-hidden="true"></span>
+          <span class="meter-zone is-bloom" aria-hidden="true"></span>
+          <span class="meter-fill" id="meterFill" aria-hidden="true"></span>
+        </div>
+        <span class="meter-threshold" style="left: 32%" aria-hidden="true"><b>0.32</b></span>
+        <span class="meter-threshold" style="left: 66%" aria-hidden="true"><b>0.66</b></span>
+      </div>
+      <div class="meter-foot">
+        <span>握拳 · 聚雷</span>
+        <span class="mono" id="tensionValue">0.00</span>
+        <span>张开 · 雷绽</span>
+      </div>
+    </section>
+
+    <aside class="gesture-hint" aria-hidden="true">
+      <span class="gesture-icon">✊</span><span>握拳 · 雷球</span>
+      <span class="gesture-sep"></span>
+      <span class="gesture-icon">🖐</span><span>张开 · 雷绽</span>
+    </aside>
+  </main>
+
+  <!-- 算法说明 ------------------------------------------------------------ -->
+  <aside class="info" id="infoPanel" aria-hidden="true" aria-labelledby="infoTitle">
+    <button class="info-close" id="btnCloseInfo" type="button" aria-label="关闭说明">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+    <p class="eyebrow">HOW&nbsp;IT&nbsp;WORKS</p>
+    <h2 id="infoTitle">算法说明</h2>
+
+    <section>
+      <h3>01 · 21 个关键点</h3>
+      <p>MediaPipe Hands 在本地逐帧输出 21 个归一化关键点（0 手腕，4/8/12/16/20 指尖）。</p>
+    </section>
+
+    <section>
+      <h3>02 · 手掌张开度 tension</h3>
+      <p>以手腕到掌指关节的平均距离作为“手掌尺度”，再比较指尖的伸展量：</p>
+      <pre><code>palm = mean(|wrist − mcp_i|)
+ext_i = clamp((|tip_i − wrist| − |mcp_i − wrist|)
+              / palm / 0.95, 0, 1)
+thumb = clamp((|tip4 − mcp5| / palm − 0.62) / 0.85, 0, 1)
+
+tension = 0.27·食指 + 0.24·中指
+        + 0.19·无名指 + 0.15·小指
+        + 0.15·拇指</code></pre>
+      <p>距离在按画面宽高比校正后的坐标中计算；tension 再做指数平滑，消除抖动。</p>
+    </section>
+
+    <section>
+      <h3>03 · 从张力到绽放</h3>
+      <p>阈值映射 + smoothstep，中间区域平滑过渡；张开是爆发、收回是凝聚，两者用不同阻尼：</p>
+      <pre><code>target = smoothstep(0.32, 0.66, tension)
+if (target &gt; spread) spread += (target − spread) × 0.62  // 张开
+else                 spread += (target − spread) × 0.12  // 收回</code></pre>
+      <p><b>tension &lt; 0.32</b> 聚雷 · <b>0.32 – 0.66</b> 电离 · <b>&gt; 0.66</b> 雷绽</p>
+    </section>
+
+    <section>
+      <h3>04 · 放电与着色器</h3>
+      <p>花体由 3 层 20 片放电束组成：每片花瓣用闭合叶形轮廓采样，62% 粒子贴在叶缘、10% 沿主脉、28% 稀疏填充内部。花苞是一颗电离球，80% 粒子填充球体，20% 沿 56 根细丝拉出尖刺。全部放电粒子由单个 <code>THREE.Points</code> 承载，顶点着色器用 <code>uSpread</code> 在雷球 / 雷花两套坐标间插值，并叠加电颤、爆闪与指尖斥力。</p>
+      <p>另有一层每帧重新生成的 <code>LineSegments</code> 动态电弧（72 条、每条 2 条分叉），以及勾出叶缘、主脉、侧脉的静态骨架；两者都会随 spread 与时间闪烁。最前方还有一层 Canvas 指尖雷电：<code>js/lightning.js</code> 用中点位移递归分形生成主弧、子分支与折返，按 8–15Hz 放电节拍重生成并做帧间插值；三层描边形成白芯 / 青蓝 / 紫蓝辉光，带 0.15s 余辉、低分辨率 bloom、随机强闪与相机震动。五指指尖、指骨、掌缘各自放电，指间距离近时会击穿出细小火花。</p>
+      <p>强闪由 <code>js/flash.js</code> 的三连击高斯脉冲驱动：雷球中心以 <code>uFlashPower</code> 照亮粒子内侧，曝光只在闪光瞬间短暂抬升；绽放时粒子沿 <code>aVelocity</code> 先炸出再回弹，握拳时轻微挤压。音效来自 <code>assets/audio/electric-arc.mp3</code>，由 <code>js/audio.js</code> 按张开度调整播放速率、低通截止和响度：握拳更闷更低，张开更亮更利。</p>
+    </section>
+
+    <section>
+      <h3>05 · 隐私</h3>
+      <p>摄像头视频与关键点都只在浏览器本地处理，没有任何上传请求。关闭摄像头后立即释放视频流。</p>
+    </section>
+
+    <section>
+      <h3>快捷键</h3>
+      <p class="keys"><kbd>C</kbd> 摄像头 <kbd>B</kbd> 画面 <kbd>H</kbd> 骨架 <kbd>I</kbd> 说明 <kbd>Esc</kbd> 关闭</p>
+    </section>
+
+    <p class="info-foot">调试：<code>?particles=20000</code> · <code>?spread=0.8</code> · <code>?debug=1</code> · <code>?hand=1&amp;tension=0.2</code></p>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <pre class="debug" id="debug" hidden></pre>
+
+  <div class="fatal" id="fatal" hidden>
+    <div>
+      <p class="eyebrow">WEBGL&nbsp;ERROR</p>
+      <h2>无法启动 3D 渲染</h2>
+      <p id="fatalText">当前浏览器或显卡环境不支持 WebGL，请更新浏览器后重试。</p>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
